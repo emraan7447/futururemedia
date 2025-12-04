@@ -1,0 +1,345 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Future Media - Payslip</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 820px; margin: 20px auto; color:#222; }
+    .controls { display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; align-items:center; }
+    .company-logo { text-align:center; margin-bottom:6px; }
+    header { text-align:center; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:12px; }
+    .meta { text-align:right; font-size:13px; color:#555; margin-bottom:8px; }
+    h2 { text-align:center; color:#0a5275; margin-top:6px; margin-bottom:12px; }
+    table { width:100%; border-collapse:collapse; margin-bottom:14px; }
+    th, td { border:1px solid #ddd; padding:8px 10px; font-size:14px; }
+    th { background:#f2f2f2; text-align:left; }
+    .right { text-align:right; }
+    .total { font-weight:700; background:#fafafa; }
+    .net { font-size:18px; font-weight:800; color:#0b6; text-align:right; }
+    footer { text-align:center; font-size:12px; color:#555; border-top:1px solid #ccc; padding-top:10px; margin-top:14px; }
+    a { color:#0a5275; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .small { font-size:12px; color:#666; }
+    button { padding:6px 10px; background:#0a5275; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+    button.secondary { background:#555; }
+    .fieldrow { display:flex; gap:8px; align-items:center; }
+    @media print {
+      body { margin:0; }
+      .controls { display:none; }
+      header { border:none; }
+      footer { border:none; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <div class="fieldrow">
+      <label for="monthSelect" class="small">Select month:</label>
+      <select id="monthSelect"></select>
+    </div>
+    <button id="renderBtn">Render Payslip</button>
+    <button onclick="window.print()" class="secondary">Print / Save PDF</button>
+  </div>
+
+  <!-- Company logo (replace path if needed) -->
+  <div class="company-logo">
+    <img id="companyLogo" src="b508461a-de15-4fb8-a21c-846cb26614eb.png" alt="Future Media" style="height:48px; display:inline-block;">
+    <div class="small"><a href="https://www.futuremedia.biz/" target="_blank">https://www.futuremedia.biz/</a></div>
+  </div>
+
+  <header>
+    <div id="headerMeta" class="meta" style="position:relative; right:0;"></div>
+  </header>
+
+  <h2 id="title">Salary Slip</h2>
+
+  <table>
+    <tbody>
+      <tr>
+        <th>Employee Name</th><td id="empName">Juveriya Fatima</td>
+        <th>Designation</th><td id="designation">Admin Executive</td>
+      </tr>
+      <tr>
+        <th>Date of Joining</th><td id="doj">15-Jan-2024</td>
+        <th>Department</th><td id="dept">Administration</td>
+      </tr>
+      <tr>
+        <th>Employee ID</th><td id="empId">9880</td>
+        <th>Pay Date</th><td id="payDate"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Earnings</th>
+        <th class="right">Amount (₹)</th>
+        <th>Deductions</th>
+        <th class="right">Amount (₹)</th>
+      </tr>
+    </thead>
+    <tbody id="payRows"></tbody>
+    <tfoot>
+      <tr class="total">
+        <td>Total Earnings</td>
+        <td class="right" id="totalEarnings">0</td>
+        <td>Total Deductions</td>
+        <td class="right" id="totalDeductions">0</td>
+      </tr>
+      <tr>
+        <td colspan="2"></td>
+        <td class="right"><strong>Net Pay (₹)</strong></td>
+        <td class="net" id="netPay">0</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <table>
+    <tbody>
+      <tr><th>YTD Earnings (up to selected month)</th><td class="right" id="ytdEarnings">0</td></tr>
+      <tr><th>YTD Deductions (up to selected month)</th><td class="right" id="ytdDeductions">0</td></tr>
+      <tr><th>YTD Net Pay (up to selected month)</th><td class="right" id="ytdNet">0</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Net Salary (in words):</strong> <span id="netWords"></span></p>
+
+  <footer>
+    <p class="small">This is a computer-generated payslip and does not require a physical signature.</p>
+    <p><strong>Authorized Signatory</strong> — Future Media</p>
+    <p id="generatedOn" class="small"></p>
+  </footer>
+
+<script>
+/* ----- Configuration ----- */
+const base = {
+  companyName: "Future Media",
+  website: "https://www.futuremedia.biz/",
+  employeeName: "Juveriya Fatima",
+  employeeId: "9880",
+  designation: "Admin Executive",
+  dateOfJoining: "15-Jan-2024", // format DD-MMM-YYYY
+  department: "Administration",
+  deductions: {} // intentionally empty (no PF / professional tax)
+};
+
+// --- Hike Settings ---
+// Total Take-home: Before hike = Rs 19,000, After hike = Rs 20,600
+const hike = {
+  effectiveMonth: "January 2025",
+  basicPreHike: 16000,      // 16,000 + 3,000 allowance = 19,000 total
+  basicPostHike: 17600,     // 17,600 + 3,000 allowance = 20,600 total
+  allowance: 3000
+};
+
+/* ----- Build month list from joining to current month ----- */
+function buildMonthsList(joiningStr) {
+  const parts = joiningStr.split('-');
+  const day = parseInt(parts[0], 10);
+  const monStr = parts[1];
+  const year = parseInt(parts[2], 10);
+  const monthIndex = new Date(`${monStr} 1, ${year}`).getMonth();
+  const start = new Date(year, monthIndex, 1);
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const months = [];
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (cursor <= end) {
+    const mName = cursor.toLocaleString('en-GB', { month: 'long' });
+    const y = cursor.getFullYear();
+    months.push(`${mName} ${y}`);
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+}
+
+/* ----- Calculate prorated days for joining month ----- */
+function getProratedDays(joiningStr) {
+  const parts = joiningStr.split('-');
+  const day = parseInt(parts[0], 10);
+  const monStr = parts[1];
+  const year = parseInt(parts[2], 10);
+  const monthIndex = new Date(`${monStr} 1, ${year}`).getMonth();
+  
+  // Last day of the joining month
+  const lastDayOfMonth = new Date(year, monthIndex + 1, 0).getDate();
+  
+  // Days worked = last day - joining day + 1
+  const daysWorked = lastDayOfMonth - day + 1;
+  
+  return { daysWorked, totalDaysInMonth: lastDayOfMonth };
+}
+
+/* ----- Utility: Indian number formatting ----- */
+function formatINR(n) {
+  const parts = Number(n).toFixed(2).split('.');
+  let intPart = parts[0];
+  let last3 = intPart.slice(-3);
+  let rest = intPart.slice(0, -3);
+  if (rest !== '') {
+    last3 = ',' + last3;
+    rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+    intPart = rest + last3;
+  }
+  return intPart + '.' + parts[1];
+}
+
+/* ----- Utility: number to words (Indian style) ----- */
+function numberToWordsIndian(num) {
+  const a = ['', 'One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten',
+             'Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const b = ['', '', 'Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+
+  function twoDigit(n) {
+    if (n < 20) return a[n];
+    return b[Math.floor(n/10)] + (n%10 ? ' ' + a[n%10] : '');
+  }
+  function threeDigit(n) {
+    let str = '';
+    if (n > 99) str += a[Math.floor(n/100)] + ' Hundred' + (n % 100 ? ' and ' : '');
+    const rem = n % 100;
+    if (rem) str += twoDigit(rem);
+    return str;
+  }
+
+  if (num === 0) return 'Zero Rupees';
+  num = Math.floor(num);
+  let result = '';
+  const crore = Math.floor(num / 10000000); num %= 10000000;
+  const lakh = Math.floor(num / 100000); num %= 100000;
+  const thousand = Math.floor(num / 1000); num %= 1000;
+  const hund = num;
+
+  if (crore) result += threeDigit(crore) + ' Crore ';
+  if (lakh) result += threeDigit(lakh) + ' Lakh ';
+  if (thousand) result += threeDigit(thousand) + ' Thousand ';
+  if (hund) result += threeDigit(hund);
+
+  return result.trim() + ' Rupees';
+}
+
+/* ----- Compute last day of month from "Month Year" string ----- */
+function computeLastDateOfMonth(monthYearStr) {
+  const [monthName, yearStr] = monthYearStr.split(' ');
+  const monthIndex = new Date(`${monthName} 1, ${yearStr}`).getMonth();
+  const firstNext = new Date(yearStr, monthIndex + 1, 1);
+  const lastDay = new Date(firstNext - 1);
+  return lastDay;
+}
+
+/* ----- Render payslip ----- */
+function renderPayslipFor(monthStr, monthsList) {
+  const idx = monthsList.indexOf(monthStr);
+  if (idx === -1) { alert('Selected month not in range'); return; }
+  const monthsPassed = idx + 1; // count from joining
+
+  // Decide basic for selected month
+  let basicSalary = hike.basicPreHike;
+  if (monthsList.indexOf(monthStr) >= monthsList.indexOf(hike.effectiveMonth)) {
+    basicSalary = hike.basicPostHike;
+  }
+
+  // Check if this is the joining month (January 2024)
+  const isJoiningMonth = (monthStr === "January 2024");
+  
+  let monthlyBasic = basicSalary;
+  let monthlyAllowance = hike.allowance;
+  let prorateNote = "";
+
+  if (isJoiningMonth) {
+    const { daysWorked, totalDaysInMonth } = getProratedDays(base.dateOfJoining);
+    // Prorate salary based on days worked
+    monthlyBasic = Math.round((basicSalary * daysWorked) / totalDaysInMonth);
+    monthlyAllowance = Math.round((hike.allowance * daysWorked) / totalDaysInMonth);
+    prorateNote = ` (${daysWorked} days)`;
+  }
+
+  // monthly values
+  const monthlyEarnings = monthlyBasic + monthlyAllowance;
+  const monthlyDeductions = Object.values(base.deductions).reduce((s,v)=>s+v,0);
+  const monthlyNet = monthlyEarnings - monthlyDeductions;
+
+  // YTD
+  const ytdEarnings = monthlyEarnings * monthsPassed;
+  const ytdDeductions = monthlyDeductions * monthsPassed;
+  const ytdNet = ytdEarnings - ytdDeductions;
+
+  // populate header & pay date
+  const payDate = computeLastDateOfMonth(monthStr);
+  const payDateStr = payDate.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+  document.getElementById('payDate').textContent = payDateStr;
+  document.getElementById('headerMeta').innerHTML =
+    `Payslip for: <strong>${monthStr}</strong>${prorateNote}<br/>Pay Date: <strong>${payDateStr}</strong><br/>Employee ID: <strong>${base.employeeId}</strong>`;
+
+  // fill employee info
+  document.getElementById('empName').textContent = base.employeeName;
+  document.getElementById('designation').textContent = base.designation;
+  document.getElementById('doj').textContent = base.dateOfJoining;
+  document.getElementById('dept').textContent = base.department;
+  document.getElementById('empId').textContent = base.employeeId;
+
+  // fill earnings/deductions rows
+  const tbody = document.getElementById('payRows');
+  tbody.innerHTML = '';
+
+  // Earnings rows
+  const earnRows = [
+    ['Basic Salary', monthlyBasic],
+    ['Allowance', monthlyAllowance]
+  ];
+  earnRows.forEach(([label, amt]) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${label}</td><td class="right">${formatINR(amt)}</td><td></td><td class="right"></td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Since no deductions, show single row with "No Deductions"
+  if (Object.keys(base.deductions).length === 0) {
+    const r = document.createElement('tr');
+    r.innerHTML = `<td>—</td><td class="right">—</td><td>No Deductions</td><td class="right">${formatINR(0)}</td>`;
+    tbody.appendChild(r);
+  } else {
+    for (const [head, amt] of Object.entries(base.deductions)) {
+      const r = document.createElement('tr');
+      r.innerHTML = `<td></td><td class="right"></td><td>${head}</td><td class="right">${formatINR(amt)}</td>`;
+      tbody.appendChild(r);
+    }
+  }
+
+  // totals
+  document.getElementById('totalEarnings').textContent = formatINR(monthlyEarnings);
+  document.getElementById('totalDeductions').textContent = formatINR(monthlyDeductions);
+  document.getElementById('netPay').textContent = formatINR(monthlyNet);
+
+  document.getElementById('ytdEarnings').textContent = formatINR(ytdEarnings);
+  document.getElementById('ytdDeductions').textContent = formatINR(ytdDeductions);
+  document.getElementById('ytdNet').textContent = formatINR(ytdNet);
+
+  document.getElementById('netWords').textContent = numberToWordsIndian(Math.round(monthlyNet)) + ' Only';
+  document.getElementById('generatedOn').textContent = 'Generated on: ' + payDate.toLocaleDateString('en-GB')
+}
+
+/* ----- Initialize UI ----- */
+const monthsList = buildMonthsList(base.dateOfJoining);
+const select = document.getElementById('monthSelect');
+monthsList.forEach((m, i) => {
+  const opt = document.createElement('option');
+  opt.value = m;
+  opt.textContent = m;
+  if (i === monthsList.length - 1) opt.selected = true;
+  select.appendChild(opt);
+});
+
+document.getElementById('renderBtn').addEventListener('click', () => {
+  renderPayslipFor(select.value, monthsList);
+});
+
+// initial render
+renderPayslipFor(select.value, monthsList);
+</script>
+
+</body>
+</html>
